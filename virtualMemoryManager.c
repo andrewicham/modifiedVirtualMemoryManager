@@ -104,7 +104,7 @@ tlb_lookup(uint32_t pageNumber, uint32_t* frameNumber){
 }
 
 void second_chance_replacement(pageNumber){
-    int hit, hitIndex;
+    int hit;
     int reference = 0;
     int refBit[TOTAL_FRAMES];
 
@@ -117,29 +117,28 @@ void second_chance_replacement(pageNumber){
 	    if(pageTable[j].pageNumber == pageNumber){ //page found in memory
 		hit = 1; //no page fault
 		if(refBit[j] == 0){ //flip reference bit
-                    refBit[j] = 1;
+                    refBit[j] = 1; //second chance = TRUE
 	    	}
-		break;
 	    }
 	}
         if(hit == 0){ //page fault found
-            if(refBit[reference] == 1){
+            if(refBit[reference] == 1){ //give second chance
                 do{
                     refBit[reference] = 0;
                     reference++;
-                    if(reference == TOTAL_FRAMES){
+                    if(reference == TOTAL_FRAMES){ //start over in array
                         reference = 0;
 		    }
                 }while(refBit[reference] == 1);
             }
-            else if(refBit[reference] == 0){
-                pageTable[reference].pageNumber = pageNumber;
+            else if(refBit[reference] == 0){ //does not have second chance
+                pageTable[reference].pageNumber = pageNumber; 
                 refBit[reference] = 1;
                 reference++;
             }
 	    pageFaults++;
         }
-        if(reference == TOTAL_FRAMES){
+        if(reference == TOTAL_FRAMES){ //start over in array
             reference = 0;
 	}
     }
