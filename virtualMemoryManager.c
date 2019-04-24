@@ -6,7 +6,7 @@
 
 #define PAGE_TABLE_SIZE 256
 #define PAGE_SIZE 256
-#define TOTAL_FRAMES 256
+#define TOTAL_FRAMES 128
 #define FRAME_SIZE 256
 #define TLB_SIZE 16
 #define PAGE_NUMBER_MASK 0xff00 //could be either 0xffff or 0xff00, as we are losing right most two f's 
@@ -20,7 +20,8 @@
 #define GET_OFFSET(addr) ((addr) & (OFFSET_MASK))
 #define GET_PHYSICAL_ADDRESS(frame, offset) ((frame << OFFSET_LENGTH) | (offset))
 
-int i;
+int i,j;
+int pageFaults = 0;
 /* first we need frame and page data structures */
 struct Page{
     uint32_t pageNumber;
@@ -102,18 +103,60 @@ tlb_lookup(uint32_t pageNumber, uint32_t* frameNumber){
     return TLB_MISS; // MISS
 }
 
+void second_chance_replacement(pageNumber){
+    int hit, hitIndex;
+    int reference = 0;
+    int refBit[TOTAL_FRAMES];
+
+    for(i = 0; i < TOTAL_FRAMES; i++){
+        refBit[i] = 0; //initialize last chance array
+    }
+    for(i = 0; i < PAGE_SIZE; i++){
+	hit = 0;
+	for(j = 0; j < TOTAL_FRAMES; j++){
+	    if(pageTable[j].pageNumber == pageNumber){ //page found in memory
+		hit = 1; //no page fault
+		if(refBit[j] == 0){ //flip reference bit
+                    refBit[j] = 1;
+	    	}
+		break;
+	    }
+	}
+        if(hit == 0){ //page fault found
+            if(refBit[reference] == 1){
+                do{
+                    refBit[reference] = 0;
+                    reference++;
+                    if(reference == TOTAL_FRAMES){
+                        reference = 0;
+		    }
+                }while(refBit[reference] == 1);
+            }
+            else if(refBit[reference] == 0){
+                pageTable[reference].pageNumber = pageNumber;
+                refBit[reference] = 1;
+                reference++;
+            }
+	    pageFaults++;
+        }
+        if(reference == TOTAL_FRAMES){
+            reference = 0;
+	}
+    }
+}
+
 void insert_into_tlb(pageNumber, frameNumber){
     for(i = 0; i < tlbInsertions; i++){
 	if(tlb.pages[i].pageNumber == pageNumber){  //if already in array, break
 	    break;
 	}
     }
-    if(i != tlbInsertions){
-	for(i = i; i < tlbInsertions - 1; i++){
+    if(tlbInsertions != i){ //num insertions not equal to index
+	for(i = i; i < (tlbInsertions - 1); i++){ //shift up in array
 	    tlb.pages[i].pageNumber = tlb.pages[i+1].pageNumber;
 	    tlb.pages[i].frameNumber = tlb.pages[i+1].frameNumber;
 	}
-	if(tlbInsertions < TLB_SIZE){  //if tlb still has room
+	if(tlbInsertions < TLB_SIZE){  //if tlb not full
 	    tlb.pages[tlbInsertions].pageNumber = pageNumber; //insert page
 	    tlb.pages[tlbInsertions].frameNumber = frameNumber; //insert frame
 	}
@@ -126,12 +169,12 @@ void insert_into_tlb(pageNumber, frameNumber){
         }
     }
     else{
-	if(tlbInsertions < TLB_SIZE){
-	    tlb.pages[tlbInsertions].pageNumber = pageNumber;
-	    tlb.pages[tlbInsertions].frameNumber = frameNumber;
+	if(tlbInsertions < TLB_SIZE){ //TLB not full
+	    tlb.pages[tlbInsertions].pageNumber = pageNumber; //insert page
+	    tlb.pages[tlbInsertions].frameNumber = frameNumber; //insert frame
 	}
 	else{
-	    for(i = 0; i < TLB_SIZE - 1; i++){
+	    for(i = 0; i < (TLB_SIZE - 1); i++){ //shift up in array
 		tlb.pages[i].pageNumber = tlb.pages[i+1].pageNumber;
 		tlb.pages[i].frameNumber = tlb.pages[i+1].frameNumber;
 	    }
@@ -153,7 +196,6 @@ int main(int argc, char const *argv[]){
     signed char value; //to hold the signed byte value from memory
 
     int tlbHits = 0;
-    int pageFaults = 0;
     float pageFaultRate = 0;
     float tlbHitRate = 0;
 
