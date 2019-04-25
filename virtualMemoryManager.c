@@ -103,14 +103,10 @@ tlb_lookup(uint32_t pageNumber, uint32_t* frameNumber){
     return TLB_MISS; // MISS
 }
 
-void second_chance_replacement(pageNumber){
+void second_chance_replacement(uint32_t pageNumber, int* refBit){
     int hit;
     int reference = 0;
-    int refBit[TOTAL_FRAMES];
-
-    for(i = 0; i < TOTAL_FRAMES; i++){
-        refBit[i] = 0; //initialize last chance array
-    }
+    
     for(i = 0; i < PAGE_SIZE; i++){
 	hit = 0;
 	for(j = 0; j < TOTAL_FRAMES; j++){
@@ -197,7 +193,12 @@ int main(int argc, char const *argv[]){
     int tlbHits = 0;
     float pageFaultRate = 0;
     float tlbHitRate = 0;
+    int refBit[TOTAL_FRAMES];
+    int *refBitPtr = refBit;
 
+    for(i = 0; i < TOTAL_FRAMES; i++){
+        refBit[i] = 0; //initialize last chance array
+    }
     //initializing the page table so that valid field of every element is false
     for(i = 0; i < PAGE_TABLE_SIZE; i++){
         pageTable[i].valid = 0;
@@ -216,7 +217,6 @@ int main(int argc, char const *argv[]){
         fprintf(stderr, "Error opening addresses.txt %s\n", "BACKING_STORE.bin");
         return -1;
     }
-    
     //iterate through the addresses.txt file line by line
     while(fgets(virtualAddress, VIRTUAL_ADDRESS_SIZE, addresses) != NULL){
         logicalAddress = atoi(virtualAddress); //set each line of logical address to type int
