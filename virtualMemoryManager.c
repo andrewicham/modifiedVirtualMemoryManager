@@ -20,7 +20,7 @@
 #define GET_OFFSET(addr) ((addr) & (OFFSET_MASK))
 #define GET_PHYSICAL_ADDRESS(frame, offset) ((frame << OFFSET_LENGTH) | (offset))
 
-int i,j;
+int i;
 int pageFaults = 0;
 /* first we need frame and page data structures */
 struct Page{
@@ -105,38 +105,36 @@ tlb_lookup(uint32_t pageNumber, uint32_t* frameNumber){
 
 void second_chance_replacement(uint32_t pageNumber, int* refBit){
     int hit;
-    int reference = 0;
+    int clock = 0;
+    hit = 0;
     
-    for(i = 0; i < PAGE_SIZE; i++){
-	hit = 0;
-	for(j = 0; j < TOTAL_FRAMES; j++){
-	    if(pageTable[j].pageNumber == pageNumber){ //page found in memory
-		hit = 1; //no page fault
-		if(refBit[j] == 0){ //flip reference bit
-                    refBit[j] = 1; //second chance = TRUE
+	for(i = 0; i < TOTAL_FRAMES; i++){
+	    if(pageTable[i].pageNumber == pageNumber){ //page found in memory
+		    hit = 1; //no page fault
+		    if(refBit[i] == 0){ //flip reference bit
+                refBit[i] = 1; //second chance = TRUE
 	    	}
 	    }
 	}
-        if(hit == 0){ //page fault found
-            if(refBit[reference] == 1){ //give second chance
-                do{
-                    refBit[reference] = 0;
-                    reference++;
-                    if(reference == TOTAL_FRAMES){ //start over in array
-                        reference = 0;
-		    }
-                }while(refBit[reference] == 1);
-            }
-            else if(refBit[reference] == 0){ //does not have second chance
-                pageTable[reference].pageNumber = pageNumber; 
-                refBit[reference] = 1;
-                reference++;
-            }
-	    pageFaults++;
+    if(hit == 0){ //page fault found
+        pageFaults++;
+        if(refBit[clock] == 1){ //give second chance
+            do{
+                refBit[clock] = 0;
+                clock++;
+                if(clock == TOTAL_FRAMES){ //start over in array
+                    clock = 0;
+		        }
+            }while(refBit[clock] == 1);
         }
-        if(reference == TOTAL_FRAMES){ //start over in array
-            reference = 0;
-	}
+        else if(refBit[clock] == 0){ //does not have second chance
+            pageTable[clock].pageNumber = pageNumber; 
+            refBit[clock] = 1;
+            clock++;
+        }
+        if(clock == TOTAL_FRAMES){ //start over in array
+            clock = 0;
+	    }
     }
 }
 
