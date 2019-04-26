@@ -20,6 +20,7 @@
 #define GET_OFFSET(addr) ((addr) & (OFFSET_MASK))
 #define GET_PHYSICAL_ADDRESS(frame, offset) ((frame << OFFSET_LENGTH) | (offset))
 
+int replaceIndex = 0;
 int i;
 int pageFaults = 0;
 /* first we need frame and page data structures */
@@ -27,6 +28,7 @@ struct Page{
     uint32_t pageNumber;
     uint32_t frameNumber;
     uint8_t valid; 
+    uint8_t referenceBit;
 };
 
 struct Frame{
@@ -42,6 +44,8 @@ struct TLB {
 struct Page pageTable[PAGE_TABLE_SIZE];
 struct Frame physicalMemory[TOTAL_FRAMES];
 char virtualAddress[VIRTUAL_ADDRESS_SIZE];
+int refBit[PAGE_TABLE_SIZE];
+int lastReferenced;
 struct TLB tlb;
 
 FILE *addresses; //creates a file pointer to addresses file and backingStore file
@@ -103,52 +107,36 @@ tlb_lookup(uint32_t pageNumber, uint32_t* frameNumber){
     return TLB_MISS; // MISS
 }
 
+int clock = 0;
 void second_chance_replacement(uint32_t pageNumber, int* refBit){
     int hit;
-    int clock = 0;
-    hit = 0;
-    
-	for(i = 0; i < PAGE_TABLE_SIZE; i++){
-	    if(pageTable[i].pageNumber == pageNumber){ //page found in memory
-		    hit = 1; //no page fault
-		    if(refBit[i] == 0){ //flip reference bit
-                refBit[i] = 1; //second chance = TRUE
-	    	}
-	    }
-	}
-    if(hit == 0){ //page fault found
-        pageFaults++;
+    //int clock = 0; 
         if(refBit[clock] == 1){ //give second chance
             do{
                 refBit[clock] = 0;
-                clock++;
-                if(clock == TOTAL_FRAMES){ //start over in array
-                    clock = 0;
-		        }
+                clock = (clock + 1) % PAGE_TABLE_SIZE;
             }while(refBit[clock] == 1);
         }
         else if(refBit[clock] == 0){ //does not have second chance
-            pageTable[clock].pageNumber = pageNumber; 
+            pageTable[clock].pageNumber = pageNumber;
             refBit[clock] = 1;
-            clock++;
+            clock = (clock + 1) % PAGE_TABLE_SIZE;
         }
-        if(clock == TOTAL_FRAMES){ //start over in array
-            clock = 0;
-	    }
-    }
+        
 }
+
 
 void insert_into_tlb(pageNumber, frameNumber){
     for(i = 0; i < tlbInsertions; i++){
-	if(tlb.pages[i].pageNumber == pageNumber){  //if already in array, break
-	    break;
-	}
+	    if(tlb.pages[i].pageNumber == pageNumber){  //if already in array, break
+	        break;
+	    }
     }
     if(tlbInsertions != i){ //num insertions not equal to index
-	for(i = i; i < (tlbInsertions - 1); i++){ //shift up in array
-	    tlb.pages[i].pageNumber = tlb.pages[i+1].pageNumber;
-	    tlb.pages[i].frameNumber = tlb.pages[i+1].frameNumber;
-	}
+	    for(i = i; i < (tlbInsertions - 1); i++){ //shift up in array
+	        tlb.pages[i].pageNumber = tlb.pages[i+1].pageNumber;
+	        tlb.pages[i].frameNumber = tlb.pages[i+1].frameNumber;
+	    }
 	if(tlbInsertions < TLB_SIZE){  //if tlb not full
 	    tlb.pages[tlbInsertions].pageNumber = pageNumber; //insert page
 	    tlb.pages[tlbInsertions].frameNumber = frameNumber; //insert frame
@@ -158,27 +146,26 @@ void insert_into_tlb(pageNumber, frameNumber){
 	    tlb.pages[tlbInsertions-1].frameNumber = frameNumber;
 	}
         if(tlbInsertions < TLB_SIZE){
-	    tlbInsertions++;
+	        tlbInsertions++;
         }
     }
     else{
-	if(tlbInsertions < TLB_SIZE){ //TLB not full
-	    tlb.pages[tlbInsertions].pageNumber = pageNumber; //insert page
-	    tlb.pages[tlbInsertions].frameNumber = frameNumber; //insert frame
-	}
-	else{
-	    for(i = 0; i < (TLB_SIZE - 1); i++){ //shift up in array
-		tlb.pages[i].pageNumber = tlb.pages[i+1].pageNumber;
-		tlb.pages[i].frameNumber = tlb.pages[i+1].frameNumber;
+	    if(tlbInsertions < TLB_SIZE){ //TLB not full
+	        tlb.pages[tlbInsertions].pageNumber = pageNumber; //insert page
+	        tlb.pages[tlbInsertions].frameNumber = frameNumber; //insert frame
 	    }
-	    tlb.pages[tlbInsertions-1].pageNumber = pageNumber;
-	    tlb.pages[tlbInsertions-1].frameNumber = frameNumber;
-	}
-	if(tlbInsertions < TLB_SIZE){
-	    tlbInsertions++;
+	    else{
+	        for(i = 0; i < (TLB_SIZE - 1); i++){ //shift up in array
+		        tlb.pages[i].pageNumber = tlb.pages[i+1].pageNumber;
+		        tlb.pages[i].frameNumber = tlb.pages[i+1].frameNumber;
+	        }
+	        tlb.pages[tlbInsertions-1].pageNumber = pageNumber;
+	        tlb.pages[tlbInsertions-1].frameNumber = frameNumber;
+	    }
+	    if(tlbInsertions < TLB_SIZE){
+	        tlbInsertions++;
         }
     }
-
 }
 int main(int argc, char const *argv[]){
     addresses = fopen(argv[1], "r"); //reads in file as command line argument 
@@ -187,11 +174,11 @@ int main(int argc, char const *argv[]){
     int logicalAddress;
     uint32_t frameNumber = 0; //initializing frame number
     signed char value; //to hold the signed byte value from memory
-
+    int noAvailableFrames = 0;
     int tlbHits = 0;
     float pageFaultRate = 0;
     float tlbHitRate = 0;
-    int refBit[PAGE_TABLE_SIZE];
+    
     int *refBitPtr = refBit;
 
     for(i = 0; i < TOTAL_FRAMES; i++){
@@ -232,7 +219,8 @@ int main(int argc, char const *argv[]){
         else{ //if the TLB search fails, do a page table lookup
             if(PAGE_HIT == page_lookup(&lookup_results, pageNumber)){ //if the page is in the page table, get its frame number
                 frameNumber = lookup_results->frameNumber;
-                insert_into_tlb(pageNumber, frameNumber); 
+                refBit[pageNumber] = 1;
+                insert_into_tlb(pageNumber, frameNumber);
             }
             else{ //if its not in the page table, look for available frame number
                 for (i = 0; i < TOTAL_FRAMES; i++) {
@@ -240,10 +228,17 @@ int main(int argc, char const *argv[]){
                         // found a free frame, use it
                         frameNumber = i;
                         physicalMemory[i].free = 0;
+                        noAvailableFrames = 0;
+                        pageFaults++;
                         break;
                     }
+                    noAvailableFrames = 1;
                 }
-                
+                //because if there were any frames available, we would not need to call the second chance replacement function
+                if(noAvailableFrames == 1){
+                    second_chance_replacement(pageNumber, refBit);
+                    pageFaults++;
+                }
                 //now, read in the page from the disk (BACKING_STORE.bin)
                 if(fseek(backingStore, pageNumber * CHUNK, SEEK_SET) != 0){
                     fprintf(stderr, "Error! cannot seek through backing store!\n");
@@ -257,13 +252,11 @@ int main(int argc, char const *argv[]){
                     continue;
                 }
                 /* the following three lines updates the page table entry for this pageNumber and frameNumber */
-                pageTable[pageNumber].pageNumber = pageNumber; 
+                pageTable[pageNumber].pageNumber = pageNumber;
                 pageTable[pageNumber].frameNumber = frameNumber;
                 pageTable[pageNumber].valid = 1;
-                pageFaults++;
+                
                 insert_into_tlb(pageNumber, frameNumber); //insert the page into the tlb
-                
-                
             }
         }
         
