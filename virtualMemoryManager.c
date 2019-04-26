@@ -28,7 +28,6 @@ struct Page{
     uint32_t pageNumber;
     uint32_t frameNumber;
     uint8_t valid; 
-    uint8_t referenceBit;
 };
 
 struct Frame{
@@ -45,6 +44,7 @@ struct Page pageTable[PAGE_TABLE_SIZE];
 struct Frame physicalMemory[TOTAL_FRAMES];
 char virtualAddress[VIRTUAL_ADDRESS_SIZE];
 int refBit[PAGE_TABLE_SIZE];
+
 int lastReferenced;
 struct TLB tlb;
 
@@ -53,9 +53,9 @@ FILE *backingStore;
 FILE *output;
 int numberOfPageFaults = 0;
 int translatedAddresses = 0;
-
+int clock = 0;
 int tlbInsertions = 0;
-//int tlbIndex = 0;
+
 
 
 
@@ -107,24 +107,20 @@ tlb_lookup(uint32_t pageNumber, uint32_t* frameNumber){
     return TLB_MISS; // MISS
 }
 
-int clock = 0;
-void second_chance_replacement(uint32_t pageNumber, int* refBit){
-    int hit;
-    //int clock = 0; 
-        if(refBit[clock] == 1){ //give second chance
-            do{
-                refBit[clock] = 0;
-                clock = (clock + 1) % PAGE_TABLE_SIZE;
-            }while(refBit[clock] == 1);
-        }
-        else if(refBit[clock] == 0){ //does not have second chance
-            pageTable[clock].pageNumber = pageNumber;
-            refBit[clock] = 1;
+/* This function utilizes a round robin implementation to check the reference bit array for a page which needs a second chance. */
+void second_chance_replacement(uint32_t pageNumber){
+    if(refBit[clock] == 1){ //give second chance
+        do{
+            refBit[clock] = 0;
             clock = (clock + 1) % PAGE_TABLE_SIZE;
-        }
-        
+        }while(refBit[clock] == 1);
+    }
+    else if(refBit[clock] == 0){ //does not have second chance
+        pageTable[clock].pageNumber = pageNumber;
+        refBit[clock] = 1;
+        clock = (clock + 1) % PAGE_TABLE_SIZE;
+    }
 }
-
 
 void insert_into_tlb(pageNumber, frameNumber){
     for(i = 0; i < tlbInsertions; i++){
@@ -179,6 +175,7 @@ int main(int argc, char const *argv[]){
     float pageFaultRate = 0;
     float tlbHitRate = 0;
     
+    
     int *refBitPtr = refBit;
 
     for(i = 0; i < TOTAL_FRAMES; i++){
@@ -219,7 +216,7 @@ int main(int argc, char const *argv[]){
         else{ //if the TLB search fails, do a page table lookup
             if(PAGE_HIT == page_lookup(&lookup_results, pageNumber)){ //if the page is in the page table, get its frame number
                 frameNumber = lookup_results->frameNumber;
-                refBit[pageNumber] = 1;
+                refBit[pageNumber] = 1; //if theres a page hit, need to set the reference bit for this index to 1
                 insert_into_tlb(pageNumber, frameNumber);
             }
             else{ //if its not in the page table, look for available frame number
@@ -236,7 +233,7 @@ int main(int argc, char const *argv[]){
                 }
                 //because if there were any frames available, we would not need to call the second chance replacement function
                 if(noAvailableFrames == 1){
-                    second_chance_replacement(pageNumber, refBit);
+                    second_chance_replacement(pageNumber);
                     pageFaults++;
                 }
                 //now, read in the page from the disk (BACKING_STORE.bin)
