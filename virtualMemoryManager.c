@@ -108,7 +108,7 @@ void second_chance_replacement(uint32_t pageNumber, int* refBit){
     int clock = 0;
     hit = 0;
     
-	for(i = 0; i < TOTAL_FRAMES; i++){
+	for(i = 0; i < PAGE_TABLE_SIZE; i++){
 	    if(pageTable[i].pageNumber == pageNumber){ //page found in memory
 		    hit = 1; //no page fault
 		    if(refBit[i] == 0){ //flip reference bit
@@ -191,7 +191,7 @@ int main(int argc, char const *argv[]){
     int tlbHits = 0;
     float pageFaultRate = 0;
     float tlbHitRate = 0;
-    int refBit[TOTAL_FRAMES];
+    int refBit[PAGE_TABLE_SIZE];
     int *refBitPtr = refBit;
 
     for(i = 0; i < TOTAL_FRAMES; i++){
